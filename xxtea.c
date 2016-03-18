@@ -53,122 +53,142 @@ static PyObject *_xxtea_pyunicode_unhexlify;
 static PyObject *_xxtea_pyunicode_decrypt;
 
 
-static void btea(uint32_t *v, int n, uint32_t const key[4])
+int ti_xxtea_encrypt(const unsigned char* str, int slen, const unsigned char* key, int keylen, unsigned char* enc_chr, int enclen) 
 {
-    uint32_t y, z, sum;
-    unsigned p, rounds, e;
+    unsigned int* v = NULL;
+    int vlen;
 
-    if (n > 1) {          /* Coding Part */
-        rounds = 6 + 52 / n;
-        sum = 0;
-        z = v[n - 1];
+    int n;
+    int q;
 
-        do {
-            sum += DELTA;
-            e = (sum >> 2) & 3;
+    unsigned int z;
+    unsigned int y;
+    unsigned int delta;
+    unsigned int mx, e;
+    unsigned int sum;
+    int i;
+    unsigned int k[4];
 
-            for (p = 0; p < n - 1; p++) {
-                y = v[p + 1];
-                z = v[p] += MX;
-            }
-
-            y = v[0];
-            z = v[n - 1] += MX;
-        }
-        while (--rounds);
+    vlen = (slen & 3);
+    if(vlen == 0){
+        vlen = slen + 4;
     }
-    else if (n < -1) {    /* Decoding Part */
-        n = -n;
-        rounds = 6 + 52 / n;
-        sum = rounds * DELTA;
+    else{
+        vlen = slen + 8 - vlen;
+    }
+
+    if(enc_chr == NULL){
+        return vlen;
+    }
+    if(enclen < vlen) return -1;
+
+    enclen = vlen;
+
+    if(enc_chr != str){
+        memcpy(enc_chr, str, slen * sizeof(unsigned char));
+    }
+
+
+    v = (unsigned int*)enc_chr;
+    vlen = enclen >> 2;
+
+    v[vlen - 1] = slen;
+
+    if((slen & 3) != 0){
+        memset((enc_chr + slen), 0, (4 - (slen & 3)) * sizeof(unsigned char));
+    }
+
+    memcpy(k, key, keylen);
+
+    n = vlen - 1;
+    z = v[n];
+    y = v[0];
+    delta = 0x9E3779B9;
+    q = 6 + 52 / (n + 1);
+    sum = 0;
+    while (0 < q--) {
+        sum = sum + delta ;
+        e = sum >> 2 & 3;
+        for (i = 0; i < n; i++) {
+            y = v[i + 1];
+            mx = (unsigned int)(z >> 5 ^ y << 2) + (unsigned int)(y >> 3 ^ z << 4) ^ (sum ^ y) + (unsigned int)(k[((unsigned int)i) & 3 ^ e] ^ z);
+            z = v[i] = v[i] + mx ;
+        }
         y = v[0];
-
-        do {
-            e = (sum >> 2) & 3;
-
-            for (p = n - 1; p > 0; p--) {
-                z = v[p - 1];
-                y = v[p] -= MX;
-            }
-
-            z = v[n - 1];
-            y = v[0] -= MX;
-            sum -= DELTA;
-        }
-        while (--rounds);
+        mx = (z >> 5 ^ y << 2) + (y >> 3 ^ z << 4) ^ (sum ^ y) + (k[((unsigned int)i) & 3 ^ e] ^ z);
+        z = v[n] = v[n] + mx & 0xffffffff;
     }
+
+    return vlen << 2;
 }
 
-static int bytes2longs(const char *in, int inlen, uint32_t *out, int padding)
-{
-    int i, pad;
-    const unsigned char *s;
+int ti_xxtea_decrypt(const unsigned char* str, int slen, const unsigned char* key, int keylen, unsigned char* dec_chr, int declen) {
+    unsigned int* v = NULL;
+    int vlen;
+    int i;
 
-    s = (const unsigned char *)in;
+    int n;
+    unsigned int z;
+    unsigned int y;
+    unsigned int delta;
+    unsigned int mx, e;
+    int q;
+    unsigned int sum;
+    unsigned int k[4];
 
-    /* (i & 3) << 3 -> [0, 8, 16, 24] */
-    for (i = 0; i < inlen;  i++) {
-        out[i >> 2] |= s[i] << ((i & 3) << 3);
+    vlen = slen;
+    if((slen & 3) != 0){
+        return -1;
     }
 
-    /* PKCS#7 padding */
-    if (padding) {
-        pad = 4 - (inlen & 3);
-        /* make sure lenght of out >= 2 */
-        pad = (inlen < 4) ? pad + 4 : pad;
-        for (i = inlen; i < inlen + pad; i++) {
-            out[i >> 2] |= pad << ((i & 3) << 3);
+    if(dec_chr == NULL){
+        return vlen;
+    }
+    if(declen < vlen) return -2;
+
+    declen = vlen;
+
+    if(dec_chr != str){
+        memcpy(dec_chr, str, slen * sizeof(unsigned char));
+    }
+
+    v = (unsigned int*)dec_chr;
+    vlen = declen >> 2;
+
+    memcpy(k, key, keylen);  
+
+    n = vlen - 1;
+    if (n == 0) {
+        return -3;
+    }
+    z = v[n - 1];
+    y = v[0];
+    delta = 0x9E3779B9;
+    q = 6 + 52 / (n + 1);
+    sum = q * delta;
+
+    while (sum != 0) {
+        e = sum >> 2 & 3;
+        for (i = n; i > 0; i--) {
+            z = v[i - 1];
+            mx = (unsigned int)(z >> 5 ^ y << 2) + (unsigned int)(y >> 3 ^ z << 4) ^ (sum ^ y) + (unsigned int)(k[((unsigned int)i) & 3 ^ e] ^ z);
+            y = v[i] = v[i] - mx;
         }
+        z = v[n];
+        mx = (z >> 5 ^ y << 2) + (y >> 3 ^ z << 4) ^ (sum ^ y) + (k[((unsigned int)i) & 3 ^ e] ^ z);
+        y = v[0] = v[0] - mx;
+        sum = sum - delta;
     }
 
-    /* Divided by 4, and then rounded up (ceil) to an integer.
-     * Which is the number of how many longs we've got.
-     */
-    return ((i - 1) >> 2) + 1;
+    n = v[vlen - 1];
+    
+    if(n >= 0 && n <= (vlen - 1) * 4){
+        dec_chr[n] = '\0';
+        return n;
+    }
+    return -4;
 }
 
-static int longs2bytes(uint32_t *in, int inlen, char *out, int padding)
-{
-    int i, outlen, pad;
-    unsigned char *s;
-
-    s = (unsigned char *)out;
-
-    for (i = 0; i < inlen; i++) {
-        s[4 * i] = in[i] & 0xFF;
-        s[4 * i + 1] = (in[i] >> 8) & 0xFF;
-        s[4 * i + 2] = (in[i] >> 16) & 0xFF;
-        s[4 * i + 3] = (in[i] >> 24) & 0xFF;
-    }
-
-    outlen = inlen * 4;
-
-    /* PKCS#7 unpadding */
-    if (padding) {
-        pad = s[outlen - 1];
-        outlen -= pad;
-
-        if (pad < 1 || pad > 8) {
-            /* invalid padding */
-            return -1;
-        }
-
-        if (outlen < 0) {
-            return -2;
-        }
-
-        for (i = outlen; i < inlen * 4; i++) {
-            if (s[i] != pad) {
-                return -3;
-            }
-        }
-    }
-
-    s[outlen] = '\0';
-
-    /* How many bytes we've got */
-    return outlen;
-}
 
 /*****************************************************************************
  * Module Functions ***********************************************************
@@ -203,26 +223,33 @@ static PyObject *xxtea_encrypt(PyObject *self, PyObject *args, PyObject *kwargs)
         return NULL;
     }
 
-    alen = dlen < 4 ? 2 : (dlen >> 2) + 1;
+    alen = dlen < 4 ? 2 : (dlen >> 2) + 1 + 2;
     d = (uint32_t *)calloc(alen, sizeof(uint32_t));
 
     if (d == NULL) {
         return PyErr_NoMemory();
     }
 
-    bytes2longs(data, dlen, d, 1);
-    bytes2longs(key, klen, k, 0);
-    btea(d, alen, k);
+    // bytes2longs(data, dlen, d, 1);
+    // bytes2longs(key, klen, k, 0);
+    // btea(d, alen, k);
 
-    retval = PyString_FromStringAndSize(NULL, (alen << 2));
+    // retval = PyString_FromStringAndSize(NULL, (alen << 2));
 
+    // if (!retval) {
+    //     goto cleanup;
+    // }
+
+    // retbuf = PyString_AS_STRING(retval);
+    // longs2bytes(d, alen, retbuf, 0);
+
+    int outlen = ti_xxtea_encrypt(data, dlen, key, klen, (uint8_t*)d, alen << 2);
+    retval = PyString_FromStringAndSize(NULL, outlen);
     if (!retval) {
         goto cleanup;
     }
-
     retbuf = PyString_AS_STRING(retval);
-    longs2bytes(d, alen, retbuf, 0);
-
+    memcpy(retbuf, d, outlen);
     free(d);
 
     return retval;
@@ -293,7 +320,7 @@ static PyObject *xxtea_decrypt(PyObject *self, PyObject *args, PyObject *kwargs)
         goto cleanup;
     }
 
-    alen = dlen / 4;
+    alen = dlen / 4 + 1;
     d = (uint32_t *)calloc(alen, sizeof(uint32_t));
 
     if (d == NULL) {
@@ -302,21 +329,23 @@ static PyObject *xxtea_decrypt(PyObject *self, PyObject *args, PyObject *kwargs)
 
     }
 
-    bytes2longs(data, dlen, d, 0);
-    bytes2longs(key, klen, k, 0);
-    btea(d, -alen, k);
+    // bytes2longs(data, dlen, d, 0);
+    // bytes2longs(key, klen, k, 0);
+    // btea(d, -alen, k);
 
-    rc = longs2bytes(d, alen, retbuf, 1);
-    if (rc >= 0) {
-        /* Remove PKCS#7 padded chars */
-        Py_SIZE(retval) = rc;
-    }
-    else {
-        /* Illegal PKCS#7 padding */
-        PyErr_SetString(PyExc_ValueError, "Invalid data, illegal PKCS#7 padding. Could be using a wrong key.");
-        goto cleanup;
-    }
+    // rc = longs2bytes(d, alen, retbuf, 1);
+    // if (rc >= 0) {
+    //     /* Remove PKCS#7 padded chars */
+    //     Py_SIZE(retval) = rc;
+    // }
+    // else {
+    //     /* Illegal PKCS#7 padding */
+    //     PyErr_SetString(PyExc_ValueError, "Invalid data, illegal PKCS#7 padding. Could be using a wrong key.");
+    //     goto cleanup;
+    // }
 
+    int outlen = ti_xxtea_decrypt(data, dlen, key, klen, (uint8_t*)d, alen << 2);
+    memcpy(retbuf, d, outlen);
     free(d);
 
     return retval;
