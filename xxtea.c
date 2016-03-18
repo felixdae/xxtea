@@ -306,14 +306,6 @@ static PyObject *xxtea_decrypt(PyObject *self, PyObject *args, PyObject *kwargs)
         return NULL;
     }
 
-    retval = PyString_FromStringAndSize(NULL, dlen);
-
-    if (!retval) {
-        return NULL;
-    }
-
-    retbuf = PyString_AS_STRING(retval);
-
     /* not divided by 4, or length < 8 */
     if (dlen & 3 || dlen < 8) {
         PyErr_SetString(PyExc_ValueError, "Invalid data, data length is not a multiple of 4, or less than 8.");
@@ -345,6 +337,12 @@ static PyObject *xxtea_decrypt(PyObject *self, PyObject *args, PyObject *kwargs)
     // }
 
     int outlen = ti_xxtea_decrypt(data, dlen, key, klen, (uint8_t*)d, alen << 2);
+    retval = PyString_FromStringAndSize(NULL, outlen);
+    if (!retval) {
+        return NULL;
+    }
+    retbuf = PyString_AS_STRING(retval);
+
     memcpy(retbuf, d, outlen);
     free(d);
 
